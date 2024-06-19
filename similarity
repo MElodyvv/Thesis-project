@@ -1,0 +1,86 @@
+import json
+import pandas as pd
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics import pairwise_distances
+import plotly.graph_objects as go
+
+# 1. Load the data ---------------------
+file_path_en = r'C:\Users\86189\Desktop\UVA毕业论文\dataset\yum_train.json'
+file_path_cn = r'C:\Users\86189\Desktop\UVA毕业论文\dataset\965-en - 副本.csv'
+
+with open(file_path_en, 'r', encoding='utf-8') as file:
+    data_en = json.load(file)
+
+en_recipe_df = pd.DataFrame(data_en)
+en_cn_recipes = en_recipe_df.loc[en_recipe_df['cuisine'] == 'chinese'].drop(columns=['cuisine'])
+en_cn_recipes['ingredients'] = en_cn_recipes['ingredients'].apply(lambda x: ', '.join(x))
+en_cn_recipes = en_cn_recipes.sample(n=965, random_state=42)
+
+# Load Chinese-Chinese recipes (translated)
+cn_recipe_df = pd.read_csv(file_path_cn)
+cn_recipe_df['Title'] = cn_recipe_df['Title'].str.strip().str.lower()
+cn_recipe_df['Ingredients'] = cn_recipe_df['Ingredients'].str.replace("'", "").str.lower()
+cn_recipe_df.rename(columns={'Title': 'id'}, inplace=True)
+cn_recipe_df.rename(columns={'Ingredients': 'ingredients'}, inplace=True)
+cn_recipe_df['ingredients'] = cn_recipe_df['ingredients'].str.replace('[', '').str.replace(']', '')
+cn_recipe_df['ingredients'] = cn_recipe_df['ingredients'].str.strip()
+
+en_cn_recipes['cuisine_label'] = 'EN-CN'
+cn_recipe_df['cuisine_label'] = 'CN-CN'
+recipes_df = pd.concat([en_cn_recipes, cn_recipe_df[['id', 'ingredients', 'cuisine_label']]], axis=0, ignore_index=True)
+
+# 2. Bag-of-Words representation ---------------------
+count_vectorizer = CountVectorizer()
+bow_matrix = count_vectorizer.fit_transform(recipes_df['ingredients'])
+bow_df = pd.DataFrame(bow_matrix.toarray(), columns=count_vectorizer.get_feature_names_out())
+recipes_df['bow'] = bow_df.apply(lambda x: x.to_dict(), axis=1)
+
+# 3. Compute cosine similarity matrix ---------------------
+X_to_reduce = pairwise_distances(bow_matrix, metric='cosine')
+similarity_matrix = 1 - X_to_reduce  # 转换为相似度矩阵，值越大表示越相似
+
+# 4. Find most similar recipes from different datasets ---------------------
+most_similar_recipes = []
+for i in range(len(en_cn_recipes)):
+    max_similarity = -1
+    most_similar_recipe_index = -1
+    for j in range(len(cn_recipe_df)):
+        similarity = similarity_matrix[i, len(en_cn_recipes) + j]  # 计算与另一个数据集中菜谱的相似度
+        if similarity > max_similarity:
+            max_similarity = similarity
+            most_similar_recipe_index = j
+    most_similar_recipes.append((en_cn_recipes.iloc[i]['id'], cn_recipe_df.iloc[most_similar_recipe_index]['id'], max_similarity))
+
+# 5. Create interactive table ---------------------
+fig = go.Figure(data=[go.Table(
+    header=dict(values=['Recipe from EN-CN', 'Recipe from CN-CN', 'Similarity'],
+                fill_color='paleturquoise',
+                align='left'),
+    cells=dict(values=[en_cn_recipes['id'], [pair[1] for pair in most_similar_recipes], [pair[2] for pair in most_similar_recipes]],
+               fill_color='lavender',
+               align='left'))
+])
+
+fig.update_layout(title='Most Similar Recipes from Different Datasets',
+                  width=800, height=600)
+fig.show()
+
+# Setting similarity threshold
+similarity_threshold = 0.85  
+
+# Filter recipe pairs and only keep recipe pairs with similarity above a threshold
+filtered_most_similar_recipes = [pair for pair in most_similar_recipes if pair[2] >= similarity_threshold]
+
+# Creating an interactive filtered table
+filtered_fig = go.Figure(data=[go.Table(
+    header=dict(values=['Recipe from EN-CN', 'Recipe from CN-CN', 'Similarity'],
+                fill_color='paleturquoise',
+                align='left'),
+    cells=dict(values=[en_cn_recipes['id'], [pair[1] for pair in filtered_most_similar_recipes], [pair[2] for pair in filtered_most_similar_recipes]],
+               fill_color='lavender',
+               align='left'))
+])
+
+filtered_fig.update_layout(title=f'Most Similar Recipes from Different Datasets (Similarity Threshold: {similarity_threshold})',
+                           width=800, height=600)
+filtered_fig.show()
