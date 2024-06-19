@@ -1,0 +1,111 @@
+import json
+import pandas as pd
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.linear_model import LogisticRegression
+from sklearn import metrics
+from sklearn import preprocessing
+
+# -------------- Preparation --------------------
+# Load English-Chinese recipes
+file_path = r'C:\Users\86189\Desktop\UVA毕业论文\dataset\yum_train.json'
+
+with open(file_path, 'r', encoding='utf-8') as file:
+    data = json.load(file)
+
+en_recipe_df = pd.DataFrame(data)
+en_cn_recipes = en_recipe_df.loc[en_recipe_df['cuisine'] == 'chinese'].drop(columns=['cuisine'])
+en_cn_recipes['ingredients'] = en_cn_recipes['ingredients'].apply(lambda x: ','.join(x))
+
+# Load Chinese-Chinese recipes (translated)
+file_path = r'C:\Users\86189\Desktop\UVA毕业论文\dataset\965-en - 副本.csv'
+cn_recipe_df = pd.read_csv(file_path)
+cn_recipe_df['Title'] = cn_recipe_df['Title'].str.strip().str.lower()
+cn_recipe_df['Ingredients'] = cn_recipe_df['Ingredients'].str.replace("'", "").str.lower()
+cn_recipe_df.rename(columns={'Title': 'id'}, inplace=True)
+cn_recipe_df.rename(columns={'Ingredients': 'ingredients'}, inplace=True)
+cn_recipe_df['ingredients'] = cn_recipe_df['ingredients'].str.replace('[', '').str.replace(']', '')
+cn_recipe_df['ingredients'] = cn_recipe_df['ingredients'].str.strip()
+
+# ----------------- Most commonly used ingredients in each dataset ---------------
+# Extract ingredients from EN-CN recipes
+en_ingredients = []
+for ingredients_str in en_cn_recipes['ingredients']:
+    en_ingredients.extend(ingredients_str.split(','))
+
+# Extract ingredients from CN-CN recipes
+cn_ingredients = []
+for ingredients_str in cn_recipe_df['ingredients']:
+    cn_ingredients.extend(ingredients_str.split(','))
+
+# Count frequency of ingredients in each dataset
+en_ingredients_freq = pd.Series(en_ingredients).value_counts()
+cn_ingredients_freq = pd.Series(cn_ingredients).value_counts()
+
+# Get the intersection of ingredient lists
+common_ingredients = set(en_ingredients) & set(cn_ingredients)
+print(common_ingredients)
+
+# Calculate the overlap ratio (if needed)
+# overlap_en = len(common_ingredients) / len(set(en_ingredients))
+# overlap_cn = len(common_ingredients) / len(set(cn_ingredients))
+# print("English-Chinese recipes dataset overlap:", overlap_en)
+# print("Chinese-Chinese translated recipes dataset overlap:", overlap_cn)
+
+en_ingredients_set = set(en_ingredients)
+cn_ingredients_set = set(cn_ingredients)
+
+# Find ingredients present in EN-CN but not in CN-CN
+missing_in_cn = en_ingredients_set - cn_ingredients_set
+missing_in_en = cn_ingredients_set - en_ingredients_set
+
+# Print missing ingredients
+print("Number of ingredients in EN-CN but not in CN-CN:", len(missing_in_cn))
+print("Ingredients in EN-CN but not in CN-CN:", missing_in_cn)
+
+# ------------------------- Clustering -------------------------------
+# Combine datasets
+en_cn_recipes['cuisine_label'] = 'EN-CN'
+cn_recipe_df['cuisine_label'] = 'CN-CN'
+recipes_df = pd.concat([en_cn_recipes, cn_recipe_df[['id', 'ingredients', 'cuisine_label']]], axis=0, ignore_index=True)
+
+# ---------------- Predictor -----------------
+# Convert cuisine labels to integer labels
+le = preprocessing.LabelEncoder()
+le.fit(recipes_df['cuisine_label'])
+recipes_df['cuisine_label'] = le.transform(recipes_df['cuisine_label'])
+
+# Split the dataset
+X = recipes_df['ingredients']
+y = recipes_df['cuisine_label']
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=99)
+
+# Vectorize ingredients using the bag-of-words model
+vect = CountVectorizer()
+X_train_dtm = vect.fit_transform(X_train)
+X_test_dtm = vect.transform(X_test)
+
+# Train and evaluate Multinomial Naive Bayes model
+nb = MultinomialNB()
+nb.fit(X_train_dtm, y_train)
+y_pred_class_nb = nb.predict(X_test_dtm)
+accuracy_nb = metrics.accuracy_score(y_test, y_pred_class_nb)
+
+# Train and evaluate Logistic Regression model
+logreg = LogisticRegression(C=1e9)
+logreg.fit(X_train_dtm, y_train)
+y_pred_class_logreg = logreg.predict(X_test_dtm)
+accuracy_logreg = metrics.accuracy_score(y_test, y_pred_class_logreg)
+
+from sklearn.metrics import classification_report, confusion_matrix
+
+# Print results
+print("Multinomial Naive Bayes results:")
+print(classification_report(y_test, y_pred_class_nb))
+
+print("Logistic Regression results:")
+print(classification_report(y_test, y_pred_class_logreg))
+
+# Print label classes
+print(le.classes_)
