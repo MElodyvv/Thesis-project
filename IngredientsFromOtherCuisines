@@ -1,0 +1,62 @@
+# # ----------------- Extract ingredients in EN-CN recipes but not in CN-CN---------------
+en_ingredients = []
+for ingredients_str in en_cn_recipes['ingredients']:
+    en_ingredients.extend(ingredients_str.split(','))
+
+cn_ingredients = []
+for ingredients_str in cn_recipe_df['ingredients']:
+    cn_ingredients.extend(ingredients_str.split(','))
+
+# Count frequency of ingredients in each dataset
+en_ingredients_freq = pd.Series(en_ingredients).value_counts()
+cn_ingredients_freq = pd.Series(cn_ingredients).value_counts()
+print('There are ingredients in EN-CN recipes:',en_ingredients_freq)
+print('There are ingredients in CN-CN recipes:',cn_ingredients_freq)
+
+en_ingredients_set = set(en_ingredients)
+cn_ingredients_set = set(cn_ingredients)
+
+common_ingredients = set(en_ingredients) & set(cn_ingredients)
+print(len(common_ingredients))
+
+
+# Compute normalized ingredient sharing ---------------------
+shared_ingredients_ratio = {}  # Dictionary to store the ratio of shared ingredients for each cuisine
+
+# Iterate through all other cuisines
+for cuisine in other_cuisines_recipes['cuisine'].unique():
+    cuisine_recipes = other_cuisines_recipes[other_cuisines_recipes['cuisine'] == cuisine]
+    cuisine_ingredients = set()
+    for _, row in cuisine_recipes.iterrows():
+        cuisine_ingredients.update(row['ingredients'])
+    shared_count = len(left_in_en_cn.intersection(cuisine_ingredients))
+    total_count = len(cuisine_ingredients)
+    shared_ingredients_ratio[cuisine] = shared_count / total_count if total_count > 0 else 0
+
+# Visualization ---------------------
+names = list(shared_ingredients_ratio.keys())
+values = list(shared_ingredients_ratio.values())
+
+# Number of cuisines
+num_cuisines = len(names)
+
+# Create a list of angles for the radial chart
+angles = np.linspace(0, 2 * np.pi, num_cuisines, endpoint=False).tolist()
+
+# The plot is made circular by appending the start value to the end.
+values += values[:1]
+angles += angles[:1]
+
+fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+ax.fill(angles, values, color='red', alpha=0.25)
+
+# Draw the lines around the outside of the filled area
+ax.plot(angles, values, color='red', linewidth=2)
+
+# Add labels for each cuisine
+for angle, name, value in zip(angles, names + [names[0]], values):
+    ax.text(angle, value + 0.05, f'{name} ({value:.2f})', horizontalalignment='left', size='small', color='black', rotation_mode="anchor")
+ax.set_yticklabels([])
+ax.set_title('Normalized Shared Ingredients between Chinese Cuisine and Other Cuisines', y=1.1, fontsize=14)
+
+plt.show()
